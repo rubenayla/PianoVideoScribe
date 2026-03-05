@@ -131,6 +131,8 @@ The agent will read `AGENT.md` for the full pipeline and handle everything — d
 
 If you don't know the BPM, say so and the agent will figure it out.
 
+This repo includes a `.claude/commands/PianoVideoScribe.md` file, so the `/PianoVideoScribe` slash command is available automatically in any Claude Code session opened inside the repo directory.
+
 ---
 
 ## How it works
