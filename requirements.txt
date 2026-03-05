@@ -1,0 +1,6 @@
+opencv-python
+mido
+numpy
+
+# Optional (heavy PyTorch dependency — only needed for audio transcription):
+# piano_transcription_inference
