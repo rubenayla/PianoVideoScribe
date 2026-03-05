@@ -121,6 +121,18 @@ Look for a frame index where the keyboard is fully visible with no colored note 
 
 ---
 
+## Using with an AI agent
+
+If you're using a Claude Code agent (or similar), you can delegate the full pipeline with a single prompt. Clone this repo first, then say:
+
+> Use the PianoVideoScribe repo (`~/repos/PianoVideoScribe`) to transcribe this Synthesia video: `https://youtu.be/VIDEO_ID`. The BPM is 120. Give me the final MIDI and MuseScore instructions.
+
+The agent will read `AGENT.md` for the full pipeline and handle everything — downloading, transcription, hand separation, and output.
+
+If you don't know the BPM, say so and the agent will figure it out.
+
+---
+
 ## How it works
 
 1. Reads an early video frame to detect white and black key positions via HSV thresholding.
