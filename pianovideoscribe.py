@@ -882,6 +882,10 @@ Examples:
                    help='Left hand processing: normal, '
                         'no-overlap (default, cut held notes at next onset, keep chords), '
                         'monophonic (single voice, lowest note only)')
+    p.add_argument('--key', type=str, default=None,
+                   help='Key signature (e.g. "E" for E major, "Em" for E minor). '
+                        'Sets the MIDI key signature so MuseScore displays correct accidentals. '
+                        'If omitted, MuseScore auto-detects (often wrong).')
     p.add_argument('--config', type=str, default=None,
                    help='Path to a JSON config file (colors, sampling zone, keyboard frame). '
                         'See configs/ directory for examples.')
@@ -1168,6 +1172,10 @@ def main():
     out_mid = MidiFile(type=1, ticks_per_beat=OUT_TPB)
     out_mid.tracks.append(build_track(right_events, 'Right Hand', OUT_US_PER_BEAT))
     out_mid.tracks.append(build_track(left_events, 'Left Hand', OUT_US_PER_BEAT))
+
+    # Add key signature if specified
+    if args.key:
+        out_mid.tracks[0].insert(0, MetaMessage('key_signature', key=args.key, time=0))
 
     out_mid.save(args.output)
 
