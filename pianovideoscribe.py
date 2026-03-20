@@ -207,17 +207,26 @@ def build_note_x_map(white_keys, black_keys, min_midi_note):
 
     c_start_idx = find_first_c(white_keys, black_keys)
 
-    # Determine C octave.  Two strategies depending on keyboard size:
+    # Determine C octave.  Configurable via min_midi_note or auto-detected:
     n_white = len(white_keys)
     if n_white >= 40:
-        # Large keyboard (near-full 88-key piano).  Assume the leftmost key
-        # is A0 (MIDI 21) and derive the first C from the keys before it.
-        # 0 keys before C → starts on C;  1 → B below;  2 → A, B below (standard piano)
+        # Large keyboard (near-full 88-key piano).
+        # Assume starts at A0 (MIDI 21).
         BELOW_C_SEMITONES = [0, 1, 3, 5, 7, 8, 10]
         semitones_below = BELOW_C_SEMITONES[min(c_start_idx, 6)]
-        c_midi = 21 + semitones_below - 12  # first C, shifted down one octave
+        c_midi = 21 + semitones_below
+    elif min_midi_note <= 21:
+        # Video-only mode (min_midi_note defaults to 21).
+        # Partial Synthesia keyboards typically start around C2-C3.
+        # Estimate from keyboard size: fewer keys → higher starting octave.
+        if n_white >= 30:
+            c_midi = 36   # C2 — typical 4-5 octave keyboard
+        elif n_white >= 20:
+            c_midi = 48   # C3 — typical 3-4 octave keyboard
+        else:
+            c_midi = 60   # C4 — small keyboard
     else:
-        # Partial keyboard — estimate from MIDI note range (original heuristic).
+        # MIDI-based mode — estimate from MIDI note range.
         c_midi = ((min_midi_note + 3) // 12) * 12
         if c_midi < 12:
             c_midi = 12
@@ -252,14 +261,29 @@ def build_note_x_map(white_keys, black_keys, min_midi_note):
             break
         note_x_map[midi] = white_keys[i]
 
-    # Assign black keys as midpoint of flanking white keys
+    # Assign black keys using actual detected positions where available,
+    # falling back to midpoint of flanking white keys.
     for wm in list(note_x_map.keys()):
         semi = wm % 12
         if semi in [0, 2, 5, 7, 9]:  # C, D, F, G, A have a sharp to the right
             black_midi = wm + 1
             next_white = wm + 2
-            if next_white in note_x_map:
-                note_x_map[black_midi] = (note_x_map[wm] + note_x_map[next_white]) // 2
+            if next_white not in note_x_map:
+                continue
+            midpoint = (note_x_map[wm] + note_x_map[next_white]) // 2
+            # Find closest detected black key to this midpoint
+            best_bk = None
+            best_dist = 999
+            for bk_x in black_keys:
+                dist = abs(bk_x - midpoint)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_bk = bk_x
+            # Use detected position if close enough, else midpoint
+            if best_bk is not None and best_dist < 20:
+                note_x_map[black_midi] = best_bk
+            else:
+                note_x_map[black_midi] = midpoint
 
     print(f"Built note→x map for {len(note_x_map)} MIDI notes "
           f"(range {min(note_x_map)}–{max(note_x_map)})")
