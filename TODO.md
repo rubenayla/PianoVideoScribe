@@ -3,6 +3,9 @@
 - [ ] Auto-detect BPM from audio using `librosa.beat.beat_track()` instead of asking the user.
       Could also detect time signature (4/4, 3/4, etc.).
       Reference: https://librosa.org/doc/latest/generated/librosa.beat.beat_track.html
+- [ ] Auto-calibrate saturation thresholds per video. Use delta detection on a few clear
+      onsets to measure the actual saturation values when keys are pressed/released, then
+      set SAT_ON/SAT_OFF thresholds automatically instead of using fixed values (70/40).
 - [ ] (Low priority) Adaptive tempo tracking for drifting tempos. Currently the BPM is fixed
       for the whole piece. For Synthesia videos this is fine (computer-generated, perfectly
       constant tempo — tested: ±1 frame jitter only, no drift). Would matter for human

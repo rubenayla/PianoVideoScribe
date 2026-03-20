@@ -122,9 +122,24 @@ def run_test():
             print(f"  Timing: avg={avg_err*1000:.0f}ms  max={max_err*1000:.0f}ms  "
                   f"within_8th={within_8th}/{len(matched)} ({100*within_8th/len(matched):.0f}%)")
 
-        # Thresholds (LH detection is weaker on partial keyboards)
+        # Check for pitch substitution errors: missed GT notes that have an
+        # extra output note at the same time with adjacent pitch class (±1 semitone).
+        # These indicate the detector is hitting the wrong key.
+        pitch_subs = 0
+        for m_t, m_pc, m_midi in missed:
+            for e_t, e_pc, e_midi in extra:
+                if abs(m_t - e_t) < 0.25 and abs(m_pc - e_pc) % 12 == 1:
+                    pitch_subs += 1
+                    break
+        if pitch_subs > 0:
+            print(f"  Pitch substitutions: {pitch_subs} (adjacent key errors)")
+
+        # Thresholds
         threshold = 70 if "Right" in hand else 30
-        if match_pct < threshold:
+        if pitch_subs > len(gt_notes) * 0.03:  # >3% pitch errors = fail
+            print(f"  FAIL: {pitch_subs} pitch substitutions > 3% of {total_gt}")
+            all_pass = False
+        elif match_pct < threshold:
             print(f"  FAIL: match rate {match_pct:.0f}% < {threshold}%")
             all_pass = False
         else:

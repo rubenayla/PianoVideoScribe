@@ -270,17 +270,31 @@ def build_note_x_map(white_keys, black_keys, min_midi_note):
 # Color sampling & hand classification
 # ---------------------------------------------------------------------------
 
-def build_detector_regions(note_x_map, white_keys, y_white):
+def build_detector_regions(note_x_map, white_keys, y_white, cfg=None):
     """Compute detector bounds for each key: x-range and y-range.
 
     Black keys are sampled in the upper zone (their body), white keys in the
     lower zone (their face).  This prevents bleed: a lit white key glows at its
     face level, which overlaps the black key gap — but NOT the black key body.
 
+    Zone offsets are configurable via cfg['detector'] for per-video tuning.
+
     Returns:
         dict mapping MIDI pitch → (x_left, x_right, y_top, y_bot).
     """
     BLACK_SEMITONES = {1, 3, 6, 8, 10}
+
+    # Detector zone defaults — overridable via config
+    det = {
+        'white_x_ratio': 0.25,   # half-width as fraction of avg white key width
+        'white_y_top': 30,       # offset above y_white
+        'white_y_bot': -5,       # offset above y_white (negative = below)
+        'black_x_hw': 3,         # half-width in pixels
+        'black_y_top': 120,      # offset above y_white
+        'black_y_bot': 80,       # offset above y_white
+    }
+    if cfg and 'detector' in cfg:
+        det.update(cfg['detector'])
 
     if len(white_keys) > 1:
         avg_white_w = np.mean(np.diff(white_keys))
@@ -290,17 +304,13 @@ def build_detector_regions(note_x_map, white_keys, y_white):
     regions = {}
     for pitch, x_center in note_x_map.items():
         if pitch % 12 in BLACK_SEMITONES:
-            # Black key: tight x (±3px), mid-body y zone.
-            # Biased downward to avoid the sparkle/halo at the top of the key,
-            # but above the white key face zone to avoid white key bleed.
-            hw = 3
-            y_top = y_white - 80   # below the halo zone
-            y_bot = y_white - 40   # above the white key face zone
+            hw = det['black_x_hw']
+            y_top = y_white - det['black_y_top']
+            y_bot = y_white - det['black_y_bot']
         else:
-            # White key: inner portion, lower y zone (key face)
-            hw = int(avg_white_w * 0.25)
-            y_top = y_white - 30   # just the face area
-            y_bot = y_white + 5
+            hw = int(avg_white_w * det['white_x_ratio'])
+            y_top = y_white - det['white_y_top']
+            y_bot = y_white - det['white_y_bot']
         regions[pitch] = (x_center - hw, x_center + hw, y_top, y_bot)
 
     return regions
@@ -464,7 +474,7 @@ def _classify_hand_from_hue(hue, green_is_right=True):
 
 def extract_notes_from_video(cap, note_x_map, y_sample_top, y_sample_bot,
                              half_w, fps, total_frames, green_is_right, colors,
-                             start_frame=0, frame_step=1, white_keys=None):
+                             start_frame=0, frame_step=1, white_keys=None, cfg=None):
     """Extract notes from the video using frame-to-frame saturation delta.
 
     Instead of checking absolute color, detects the *moment* a key changes
@@ -488,22 +498,19 @@ def extract_notes_from_video(cap, note_x_map, y_sample_top, y_sample_bot,
     Returns:
         List of (pitch, hand, onset_sec, offset_sec) tuples.
     """
-    DELTA_ON = 30    # saturation increase threshold for note-on
-    DELTA_OFF = 30   # saturation decrease threshold for note-off
-    MIN_SAT = 80     # minimum absolute saturation to confirm note-on
+    SAT_ON = 70      # saturation threshold: above = key pressed
+    SAT_OFF = 40     # saturation threshold: below = key released
 
     # Build detector regions
     if white_keys is not None:
         det_regions = build_detector_regions(note_x_map, white_keys,
-                                            y_sample_bot)  # y_sample_bot ≈ y_white
+                                            y_sample_bot, cfg=cfg)  # y_sample_bot ≈ y_white
     else:
         det_regions = {p: (x - half_w, x + half_w, y_sample_top, y_sample_bot)
                        for p, x in note_x_map.items()}
 
     pitches = sorted(note_x_map.keys())
 
-    # Previous frame's average saturation per key
-    prev_sat = {p: 0.0 for p in pitches}
     # Active notes: pitch → (hand, onset_frame)
     active = {}
     notes = []
@@ -519,17 +526,15 @@ def extract_notes_from_video(cap, note_x_map, y_sample_top, y_sample_bot,
         for pitch in pitches:
             x_left, x_right, yt, yb = det_regions[pitch]
             sat = _region_avg_saturation(hsv, x_left, x_right, yt, yb)
-            delta = sat - prev_sat[pitch]
-            prev_sat[pitch] = sat
 
-            if pitch not in active and delta > DELTA_ON and sat > MIN_SAT:
-                # Note on: sudden saturation increase + high absolute saturation
+            if pitch not in active and sat > SAT_ON:
+                # Note on: key is saturated
                 hue = _region_avg_hue(hsv, x_left, x_right, yt, yb)
                 hand = _classify_hand_from_hue(hue, green_is_right)
                 active[pitch] = (hand, f_idx)
 
-            elif pitch in active and delta < -DELTA_OFF:
-                # Note off: sudden saturation drop
+            elif pitch in active and sat < SAT_OFF:
+                # Note off: key no longer saturated
                 hand, onset_frame = active.pop(pitch)
                 onset_sec = onset_frame / fps
                 offset_sec = f_idx / fps
@@ -989,7 +994,7 @@ def main():
         video_notes = extract_notes_from_video(
             cap, note_x_map, y_sample_top, y_sample_bot,
             half_w, fps, total_frames, green_is_right, cfg['colors'],
-            start_frame=frame_idx, frame_step=1, white_keys=white_keys)
+            start_frame=frame_idx, frame_step=1, white_keys=white_keys, cfg=cfg)
         cap.release()
 
         right_count = sum(1 for _, h, _, _ in video_notes if h == 0)
