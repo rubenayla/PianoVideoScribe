@@ -53,6 +53,15 @@ MuseScore 4 prints QML type warnings — harmless, ignore them.
 open -a "MuseScore 4" output.mid
 ```
 
+### Always create a README.md with the YouTube URL
+
+Every song folder should have a `README.md` with at minimum:
+```markdown
+# Song Title — Artist
+
+https://youtu.be/VIDEO_ID
+```
+
 ### Important: MuseScore overrides MIDI tempo
 
 MuseScore 4 ignores `set_tempo` from MIDI files and defaults to quarter=60. The tempo

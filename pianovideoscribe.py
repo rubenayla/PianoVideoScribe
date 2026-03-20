@@ -116,7 +116,7 @@ def detect_keyboard(cap, frame_idx=5):
             in_key = False
 
     print(f"Detected {len(black_keys)} black keys")
-    return white_keys, black_keys, y_white
+    return white_keys, black_keys, y_white, y_black
 
 
 def regularize_positions(positions):
@@ -294,40 +294,41 @@ def build_note_x_map(white_keys, black_keys, min_midi_note):
 # Color sampling & hand classification
 # ---------------------------------------------------------------------------
 
-def build_detector_regions(note_x_map, white_keys, y_white, cfg=None):
+def build_detector_regions(note_x_map, white_keys, y_white, cfg=None, y_black=None):
     """Compute detector bounds for each key: x-range and y-range.
 
     Black keys are sampled in the upper zone (their body), white keys in the
     lower zone (their face).  This prevents bleed: a lit white key glows at its
     face level, which overlaps the black key gap — but NOT the black key body.
 
-    Zone offsets are configurable via cfg['detector'] for per-video tuning.
+    Zone positions are derived from keyboard_height (y_white - y_black) as
+    percentages, making them independent of resolution and keyboard zoom.
 
     Returns:
         dict mapping MIDI pitch → (x_left, x_right, y_top, y_bot).
     """
     BLACK_SEMITONES = {1, 3, 6, 8, 10}
 
-    # Detector zone defaults — overridable via config.
-    # Y-offsets scale with key width (adapts to resolution).
     if len(white_keys) > 1:
         avg_white_w = np.mean(np.diff(white_keys))
     else:
         avg_white_w = 30
 
-    # Scale based on video height, not key width (key width varies with
-    # how many keys are visible, but the keyboard's physical proportions
-    # scale with resolution).
-    frame_h = y_white + int(y_white * 0.1)  # approximate frame height
-    scale = frame_h / 720.0  # normalize to 720p baseline
+    # Keyboard height proxy: white key length ≈ 5× white key width.
+    # All y-zones are percentages of this, making them independent of
+    # resolution AND keyboard zoom level.
+    kb_h = avg_white_w * 5
 
+    # Detector zones as % of keyboard height — overridable via config.
+    # White key face: bottom 12% of keyboard (just above y_white)
+    # Black key body: 33-49% from bottom (above white glow, below halo)
     det = {
         'white_x_ratio': 0.25,
-        'white_y_top': int(30 * scale),
-        'white_y_bot': int(-5 * scale),
-        'black_x_hw': max(2, int(3 * scale)),
-        'black_y_top': int(120 * scale),
-        'black_y_bot': int(80 * scale),
+        'white_y_top_pct': 0.12,    # 12% above y_white
+        'white_y_bot_pct': -0.02,   # 2% below y_white
+        'black_x_hw': max(2, int(avg_white_w * 0.08)),
+        'black_y_top_pct': 0.49,    # 49% above y_white
+        'black_y_bot_pct': 0.33,    # 33% above y_white
     }
     if cfg and 'detector' in cfg:
         det.update(cfg['detector'])
@@ -336,12 +337,12 @@ def build_detector_regions(note_x_map, white_keys, y_white, cfg=None):
     for pitch, x_center in note_x_map.items():
         if pitch % 12 in BLACK_SEMITONES:
             hw = det['black_x_hw']
-            y_top = y_white - det['black_y_top']
-            y_bot = y_white - det['black_y_bot']
+            y_top = y_white - int(kb_h * det['black_y_top_pct'])
+            y_bot = y_white - int(kb_h * det['black_y_bot_pct'])
         else:
             hw = int(avg_white_w * det['white_x_ratio'])
-            y_top = y_white - det['white_y_top']
-            y_bot = y_white - det['white_y_bot']
+            y_top = y_white - int(kb_h * det['white_y_top_pct'])
+            y_bot = y_white - int(kb_h * det['white_y_bot_pct'])
         regions[pitch] = (x_center - hw, x_center + hw, y_top, y_bot)
 
     return regions
@@ -505,7 +506,8 @@ def _classify_hand_from_hue(hue, green_is_right=True):
 
 def extract_notes_from_video(cap, note_x_map, y_sample_top, y_sample_bot,
                              half_w, fps, total_frames, green_is_right, colors,
-                             start_frame=0, frame_step=1, white_keys=None, cfg=None):
+                             start_frame=0, frame_step=1, white_keys=None, cfg=None,
+                             y_black=None):
     """Extract notes from the video using frame-to-frame saturation delta.
 
     Instead of checking absolute color, detects the *moment* a key changes
@@ -535,7 +537,7 @@ def extract_notes_from_video(cap, note_x_map, y_sample_top, y_sample_bot,
     # Build detector regions
     if white_keys is not None:
         det_regions = build_detector_regions(note_x_map, white_keys,
-                                            y_sample_bot, cfg=cfg)  # y_sample_bot ≈ y_white
+                                            y_sample_bot, cfg=cfg, y_black=y_black)
     else:
         det_regions = {p: (x - half_w, x + half_w, y_sample_top, y_sample_bot)
                        for p, x in note_x_map.items()}
@@ -1006,7 +1008,7 @@ def main():
 
     # --- Step 1: Detect keyboard ---
     print("--- Step 1: Detect keyboard ---")
-    white_keys, black_keys, y_white = detect_keyboard(cap, frame_idx=frame_idx)
+    white_keys, black_keys, y_white, y_black = detect_keyboard(cap, frame_idx=frame_idx)
 
     y_sample_top = y_white - cfg['sampling']['y_offset_top']
     y_sample_bot = y_white - cfg['sampling']['y_offset_bot']
@@ -1056,7 +1058,8 @@ def main():
         video_notes = extract_notes_from_video(
             cap, note_x_map, y_sample_top, y_sample_bot,
             half_w, fps, total_frames, green_is_right, cfg['colors'],
-            start_frame=frame_idx, frame_step=1, white_keys=white_keys, cfg=cfg)
+            start_frame=frame_idx, frame_step=1, white_keys=white_keys, cfg=cfg,
+            y_black=y_black)
         cap.release()
 
         right_count = sum(1 for _, h, _, _ in video_notes if h == 0)
