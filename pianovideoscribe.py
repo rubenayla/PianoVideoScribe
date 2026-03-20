@@ -308,22 +308,29 @@ def build_detector_regions(note_x_map, white_keys, y_white, cfg=None):
     """
     BLACK_SEMITONES = {1, 3, 6, 8, 10}
 
-    # Detector zone defaults — overridable via config
-    det = {
-        'white_x_ratio': 0.25,   # half-width as fraction of avg white key width
-        'white_y_top': 30,       # offset above y_white
-        'white_y_bot': -5,       # offset above y_white (negative = below)
-        'black_x_hw': 3,         # half-width in pixels
-        'black_y_top': 120,      # offset above y_white
-        'black_y_bot': 80,       # offset above y_white
-    }
-    if cfg and 'detector' in cfg:
-        det.update(cfg['detector'])
-
+    # Detector zone defaults — overridable via config.
+    # Y-offsets scale with key width (adapts to resolution).
     if len(white_keys) > 1:
         avg_white_w = np.mean(np.diff(white_keys))
     else:
         avg_white_w = 30
+
+    # Scale based on video height, not key width (key width varies with
+    # how many keys are visible, but the keyboard's physical proportions
+    # scale with resolution).
+    frame_h = y_white + int(y_white * 0.1)  # approximate frame height
+    scale = frame_h / 720.0  # normalize to 720p baseline
+
+    det = {
+        'white_x_ratio': 0.25,
+        'white_y_top': int(30 * scale),
+        'white_y_bot': int(-5 * scale),
+        'black_x_hw': max(2, int(3 * scale)),
+        'black_y_top': int(120 * scale),
+        'black_y_bot': int(80 * scale),
+    }
+    if cfg and 'detector' in cfg:
+        det.update(cfg['detector'])
 
     regions = {}
     for pitch, x_center in note_x_map.items():
